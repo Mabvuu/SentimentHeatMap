@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, dev ]
+  pull_request:
+    branches: [ main, dev ]
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    services:
+      backend:
+        image: node:18
+        ports: ['4000:4000']
+        options: >-
+          --health-cmd "node -e \"require('http').createServer((req,res)=>res.end('ok')).listen(4000)\" || exit 1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install & Test backend (Jest)
+        working-directory: ./frontend
+        run: |
+          npm ci
+          npm run test
+
+      - name: Start frontend dev (for Playwright)
+        working-directory: ./frontend
+        run: |
+          npm ci
+          npm run dev -- --host &   # run dev server in background
+          npx wait-on http://localhost:5173 --timeout 10000
+
+      - name: Run Playwright E2E
+        working-directory: ./frontend
+        run: |
+          npx playwright install --with-deps
+          npm run test:e2e
+
+      - name: Build backend Docker image
+        run: docker build -t sentiment-backend:ci ./backend
+
+      - name: Build frontend Docker image
+        run: docker build -t sentiment-frontend:ci ./frontend
+
+      - name: List local docker images
+        run: docker images --filter=reference='sentiment-*'
